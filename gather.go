@@ -180,6 +180,8 @@ func (a *Agent) gatherCandidatesLocal(ctx context.Context, networkTypes []Networ
 			case tcp:
 				if a.activeTCP {
 					tcpType = TCPTypeActive
+					a.log.Error("TODO: support TCP packet conns")
+					// conn, err = a.net.Dial("tcp", address)
 				} else {
 					// Handle ICE TCP passive mode
 					a.log.Debugf("GetConn by ufrag: %s\n", a.localUfrag)
