@@ -114,10 +114,12 @@ type Agent struct {
 	extIPMapper *externalIPMapper
 
 	// State for closing
-	done chan struct{}
-	err  atomicError
+	done         chan struct{}
+	taskLoopDone chan struct{}
+	err          atomicError
 
 	gatherCandidateCancel func()
+	gatherCandidateDone   chan struct{}
 
 	chanCandidate     chan Candidate
 	chanCandidatePair chan *CandidatePair
@@ -126,9 +128,10 @@ type Agent struct {
 	loggerFactory logging.LoggerFactory
 	log           logging.LeveledLogger
 
-	net    *vnet.Net
-	tcpMux TCPMux
-	udpMux UDPMux
+	net         *vnet.Net
+	tcpMux      TCPMux
+	udpMux      UDPMux
+	udpMuxSrflx UniversalUDPMux
 
 	interfaceFilter func(string) bool
 
@@ -218,6 +221,7 @@ func (a *Agent) taskLoop() {
 		close(a.chanState)
 		close(a.chanCandidate)
 		close(a.chanCandidatePair)
+		close(a.taskLoopDone)
 	}()
 
 	for {
@@ -294,6 +298,7 @@ func NewAgent(config *AgentConfig) (*Agent, error) { //nolint:gocognit
 		onConnected:       make(chan struct{}),
 		buffer:            packetio.NewBuffer(),
 		done:              make(chan struct{}),
+		taskLoopDone:      make(chan struct{}),
 		startedCh:         startedCtx.Done(),
 		startedFn:         startedFn,
 		portmin:           config.PortMin,
@@ -328,6 +333,7 @@ func NewAgent(config *AgentConfig) (*Agent, error) { //nolint:gocognit
 		a.tcpMux = newInvalidTCPMux()
 	}
 	a.udpMux = config.UDPMux
+	a.udpMuxSrflx = config.UDPMuxSrflx
 
 	if a.net == nil {
 		a.net = vnet.NewNet(nil)
@@ -433,12 +439,12 @@ func (a *Agent) startOnConnectionStateChangeRoutine() {
 					}
 					return
 				}
-				a.onConnectionStateChange(s)
+				go a.onConnectionStateChange(s)
 
 			case c, isOpen := <-a.chanCandidate:
 				if !isOpen {
 					for s := range a.chanState {
-						a.onConnectionStateChange(s)
+						go a.onConnectionStateChange(s)
 					}
 					return
 				}
@@ -933,29 +939,34 @@ func (a *Agent) GetRemoteUserCredentials() (frag string, pwd string, err error) 
 	return
 }
 
+func (a *Agent) removeUfragFromMux() {
+	a.tcpMux.RemoveConnByUfrag(a.localUfrag)
+	if a.udpMux != nil {
+		a.udpMux.RemoveConnByUfrag(a.localUfrag)
+	}
+	if a.udpMuxSrflx != nil {
+		a.udpMuxSrflx.RemoveConnByUfrag(a.localUfrag)
+	}
+}
+
 // Close cleans up the Agent
 func (a *Agent) Close() error {
 	if err := a.ok(); err != nil {
 		return err
 	}
 
-	done := make(chan struct{})
-
 	a.afterRun(func(context.Context) {
-		close(done)
+		a.gatherCandidateCancel()
+		if a.gatherCandidateDone != nil {
+			<-a.gatherCandidateDone
+		}
 	})
-
-	a.gatherCandidateCancel()
 	a.err.Store(ErrClosed)
 
-	a.tcpMux.RemoveConnByUfrag(a.localUfrag)
-	if a.udpMux != nil {
-		a.udpMux.RemoveConnByUfrag(a.localUfrag)
-	}
+	a.removeUfragFromMux()
 
 	close(a.done)
-
-	<-done
+	<-a.taskLoopDone
 	return nil
 }
 
@@ -1272,6 +1283,7 @@ func (a *Agent) Restart(ufrag, pwd string) error {
 		}
 
 		// Clear all agent needed to take back to fresh state
+		a.removeUfragFromMux()
 		agent.localUfrag = ufrag
 		agent.localPwd = pwd
 		agent.remoteUfrag = ""

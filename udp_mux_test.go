@@ -66,7 +66,7 @@ func TestUDPMux(t *testing.T) {
 	require.NoError(t, udpMux.Close())
 
 	// can't create more connections
-	_, err = udpMux.GetConn("failufrag")
+	_, err = udpMux.GetConn("failufrag", false)
 	require.Error(t, err)
 }
 
@@ -111,7 +111,7 @@ func TestAddressEncoding(t *testing.T) {
 }
 
 func testMuxConnection(t *testing.T, udpMux *UDPMuxDefault, ufrag string, network string) {
-	pktConn, err := udpMux.GetConn(ufrag)
+	pktConn, err := udpMux.GetConn(ufrag, false)
 	require.NoError(t, err, "error retrieving muxed connection for ufrag")
 	defer func() {
 		_ = pktConn.Close()
@@ -219,4 +219,42 @@ func verifyPacket(t *testing.T, b []byte, nextSeq uint32) {
 	require.Equal(t, nextSeq, readSeq)
 	h := sha1.Sum(b[24:]) //nolint:gosec
 	require.Equal(t, h[:], b[4:24])
+}
+
+func TestUDPMux_Agent_Restart(t *testing.T) {
+	oneSecond := time.Second
+	connA, connB := pipe(&AgentConfig{
+		DisconnectedTimeout: &oneSecond,
+		FailedTimeout:       &oneSecond,
+	})
+
+	aNotifier, aConnected := onConnected()
+	require.NoError(t, connA.agent.OnConnectionStateChange(aNotifier))
+
+	bNotifier, bConnected := onConnected()
+	require.NoError(t, connB.agent.OnConnectionStateChange(bNotifier))
+
+	// Maintain Credentials across restarts
+	ufragA, pwdA, err := connA.agent.GetLocalUserCredentials()
+	require.NoError(t, err)
+
+	ufragB, pwdB, err := connB.agent.GetLocalUserCredentials()
+	require.NoError(t, err)
+
+	require.NoError(t, err)
+
+	// Restart and Re-Signal
+	require.NoError(t, connA.agent.Restart(ufragA, pwdA))
+	require.NoError(t, connB.agent.Restart(ufragB, pwdB))
+
+	require.NoError(t, connA.agent.SetRemoteCredentials(ufragB, pwdB))
+	require.NoError(t, connB.agent.SetRemoteCredentials(ufragA, pwdA))
+	gatherAndExchangeCandidates(connA.agent, connB.agent)
+
+	// Wait until both have gone back to connected
+	<-aConnected
+	<-bConnected
+
+	require.NoError(t, connA.agent.Close())
+	require.NoError(t, connB.agent.Close())
 }

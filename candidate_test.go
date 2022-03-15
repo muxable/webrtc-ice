@@ -294,6 +294,22 @@ func TestCandidateMarshal(t *testing.T) {
 			},
 			"1380287402 1 udp 2130706431 e2494022-4d9a-4c1e-a750-cc48d4f8d6ee.local 60542 typ host", false,
 		},
+		// Missing Foundation
+		{
+			&CandidateHost{
+				candidateBase{
+					networkType:        NetworkTypeUDP4,
+					candidateType:      CandidateTypeHost,
+					address:            "127.0.0.1",
+					port:               80,
+					priorityOverride:   500,
+					foundationOverride: " ",
+				},
+				"",
+			},
+			" 1 udp 500 127.0.0.1 80 typ host",
+			false,
+		},
 
 		// Invalid candidates
 		{nil, "", true},
@@ -307,6 +323,7 @@ func TestCandidateMarshal(t *testing.T) {
 		{nil, "4207374051 1 udp INVALID 10.0.75.1 53634 typ host", true},
 		{nil, "4207374051 INVALID udp 2130706431 10.0.75.1 INVALID typ host", true},
 		{nil, "4207374051 1 udp 2130706431 10.0.75.1 53634 typ INVALID", true},
+		{nil, "4207374051 1 INVALID 2130706431 10.0.75.1 53634 typ host", true},
 	} {
 		actualCandidate, err := UnmarshalCandidate(test.marshaled)
 		if test.expectError {

@@ -19,6 +19,7 @@ David Hamilton <davidhamiltron@gmail.com>
 David Zhao <david@davidzhao.com>
 Devin Gunay <devingunay@gmail.com>
 Henry <cryptix@riseup.net>
+hexiang <hexiang.zhang@chukong-inc.com>
 hn8 <10730886+hn8@users.noreply.github.com>
 Hugo Arregui <hugo.arregui@gmail.com>
 Hugo Arregui <hugo@decentraland.org>
@@ -34,6 +35,7 @@ Luke Curley <kixelated@gmail.com>
 Meelap Shah <meelapshah@gmail.com>
 Michael MacDonald <github@macdonald.cx>
 Michael MacDonald <mike.macdonald@savantsystems.com>
+Mikhail Bragin <misha@wiretrustee.com>
 Nevio Vesic <nevio@subspace.com>
 Ori Bernstein <ori@eigenstate.org>
 Robert Eperjesi <eperjesi@uber.com>
