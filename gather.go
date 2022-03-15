@@ -180,8 +180,6 @@ func (a *Agent) gatherCandidatesLocal(ctx context.Context, networkTypes []Networ
 			case tcp:
 				if a.activeTCP {
 					tcpType = TCPTypeActive
-					a.log.Error("TODO: support TCP packet conns")
-					// conn, err = a.net.Dial("tcp", address)
 				} else {
 					// Handle ICE TCP passive mode
 					a.log.Debugf("GetConn by ufrag: %s\n", a.localUfrag)
@@ -190,11 +188,11 @@ func (a *Agent) gatherCandidatesLocal(ctx context.Context, networkTypes []Networ
 						if !errors.Is(err, ErrTCPMuxNotInitialized) {
 							a.log.Warnf("error getting tcp conn by ufrag: %s %s %s\n", network, ip, a.localUfrag)
 						}
-						port = conn.LocalAddr().(*net.TCPAddr).Port
-						tcpType = TCPTypePassive
-						// is there a way to verify that the listen address is even
-						// accessible from the current interface.
 					}
+					port = conn.LocalAddr().(*net.TCPAddr).Port
+					tcpType = TCPTypePassive
+					// is there a way to verify that the listen address is even
+					// accessible from the current interface.
 				}
 			case udp:
 				conn, err = listenUDPInPortRange(a.net, a.log, int(a.portmax), int(a.portmin), network, &net.UDPAddr{IP: ip, Port: 0})
