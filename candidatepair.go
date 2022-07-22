@@ -91,6 +91,18 @@ func (p *CandidatePair) Write(b []byte) (int, error) {
 	return p.Local.writeTo(b, p.Remote)
 }
 
+func (p *CandidatePair) copy() (*CandidatePair, error) {
+	local, err := p.Local.copy()
+	if err != nil {
+		return nil, err
+	}
+	remote, err := p.Remote.copy()
+	if err != nil {
+		return nil, err
+	}
+	return &CandidatePair{Local: local, Remote: remote}, nil
+}
+
 func (a *Agent) sendSTUN(msg *stun.Message, local, remote Candidate) {
 	_, err := local.writeTo(msg.Raw, remote)
 	if err != nil {

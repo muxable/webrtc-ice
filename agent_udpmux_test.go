@@ -56,7 +56,7 @@ func TestMuxAgent(t *testing.T) {
 
 	conn, muxedConn := connect(a, muxedA)
 
-	pair := muxedA.getSelectedPair()
+	pair := muxedA.getSelectedPairs()
 	require.NotNil(t, pair)
 	require.Equal(t, muxPort, pair.Local.Port())
 

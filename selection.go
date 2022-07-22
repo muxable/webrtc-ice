@@ -19,13 +19,11 @@ type pairCandidateSelector interface {
 type controllingSelector struct {
 	startTime     time.Time
 	agent         *Agent
-	nominatedPair *CandidatePair
 	log           logging.LeveledLogger
 }
 
 func (s *controllingSelector) Start() {
 	s.startTime = time.Now()
-	s.nominatedPair = nil
 }
 
 func (s *controllingSelector) isNominatable(c Candidate) bool {
@@ -45,26 +43,19 @@ func (s *controllingSelector) isNominatable(c Candidate) bool {
 }
 
 func (s *controllingSelector) ContactCandidates() {
+			s.log.Trace("contact candidates")
 	switch {
-	case s.agent.getSelectedPair() != nil:
-		if s.agent.validateSelectedPair() {
+	case len(s.agent.getSelectedPairs()) > 0:
+		if s.agent.validateSelectedPairs() {
 			s.log.Trace("checking keepalive")
 			s.agent.checkKeepalive()
 		}
-	case s.nominatedPair != nil:
-		s.nominatePair(s.nominatedPair)
 	default:
-		p := s.agent.getBestValidCandidatePair()
-		if p != nil && s.isNominatable(p.Local) && s.isNominatable(p.Remote) {
-			s.log.Tracef("Nominatable pair found, nominating (%s, %s)", p.Local.String(), p.Remote.String())
-			p.nominated = true
-			s.nominatedPair = p
-			s.nominatePair(p)
-			return
-		}
 		s.agent.pingAllCandidates()
 	}
 }
+
+// TODO: we never nominate pairs right now.
 
 func (s *controllingSelector) nominatePair(pair *CandidatePair) {
 	// The controlling agent MUST include the USE-CANDIDATE attribute in
@@ -98,17 +89,17 @@ func (s *controllingSelector) HandleBindingRequest(m *stun.Message, local, remot
 		return
 	}
 
-	if p.state == CandidatePairStateSucceeded && s.nominatedPair == nil && s.agent.getSelectedPair() == nil {
-		bestPair := s.agent.getBestAvailableCandidatePair()
-		if bestPair == nil {
-			s.log.Tracef("No best pair available")
-		} else if bestPair.equal(p) && s.isNominatable(p.Local) && s.isNominatable(p.Remote) {
-			s.log.Tracef("The candidate (%s, %s) is the best candidate available, marking it as nominated",
-				p.Local.String(), p.Remote.String())
-			s.nominatedPair = p
-			s.nominatePair(p)
-		}
-	}
+	// if p.state == CandidatePairStateSucceeded && s.nominatedPair == nil && s.agent.getSelectedPairs() == nil {
+	// 	bestPair := s.agent.getBestAvailableCandidatePair()
+	// 	if bestPair == nil {
+	// 		s.log.Tracef("No best pair available")
+	// 	} else if bestPair.equal(p) && s.isNominatable(p.Local) && s.isNominatable(p.Remote) {
+	// 		s.log.Tracef("The candidate (%s, %s) is the best candidate available, marking it as nominated",
+	// 			p.Local.String(), p.Remote.String())
+	// 		s.nominatedPair = p
+	// 		s.nominatePair(p)
+	// 	}
+	// }
 }
 
 func (s *controllingSelector) HandleSuccessResponse(m *stun.Message, local, remote Candidate, remoteAddr net.Addr) {
@@ -138,9 +129,7 @@ func (s *controllingSelector) HandleSuccessResponse(m *stun.Message, local, remo
 
 	p.state = CandidatePairStateSucceeded
 	s.log.Tracef("Found valid candidate pair: %s", p)
-	if pendingRequest.isUseCandidate && s.agent.getSelectedPair() == nil {
-		s.agent.setSelectedPair(p)
-	}
+	s.agent.addSelectedPair(p)
 }
 
 func (s *controllingSelector) PingCandidate(local, remote Candidate) {
@@ -168,8 +157,8 @@ func (s *controlledSelector) Start() {
 }
 
 func (s *controlledSelector) ContactCandidates() {
-	if s.agent.getSelectedPair() != nil {
-		if s.agent.validateSelectedPair() {
+	if s.agent.getSelectedPairs() != nil {
+		if s.agent.validateSelectedPairs() {
 			s.log.Trace("checking keepalive")
 			s.agent.checkKeepalive()
 		}
@@ -230,44 +219,34 @@ func (s *controlledSelector) HandleSuccessResponse(m *stun.Message, local, remot
 	p.state = CandidatePairStateSucceeded
 	s.log.Tracef("Found valid candidate pair: %s", p)
 	if p.nominateOnBindingSuccess {
-		if selectedPair := s.agent.getSelectedPair(); selectedPair == nil {
-			s.agent.setSelectedPair(p)
-		}
+		s.agent.addSelectedPair(p)
 	}
 }
 
 func (s *controlledSelector) HandleBindingRequest(m *stun.Message, local, remote Candidate) {
-	useCandidate := m.Contains(stun.AttrUseCandidate)
-
 	p := s.agent.findPair(local, remote)
 	if p == nil {
 		p = s.agent.addPair(local, remote)
 	}
 
-	if useCandidate {
-		// https://tools.ietf.org/html/rfc8445#section-7.3.1.5
+	// https://tools.ietf.org/html/rfc8445#section-7.3.1.5
 
-		if p.state == CandidatePairStateSucceeded {
-			// If the state of this pair is Succeeded, it means that the check
-			// previously sent by this pair produced a successful response and
-			// generated a valid pair (Section 7.2.5.3.2).  The agent sets the
-			// nominated flag value of the valid pair to true.
-			if selectedPair := s.agent.getSelectedPair(); selectedPair == nil || selectedPair.priority() < p.priority() {
-				s.agent.setSelectedPair(p)
-			} else if selectedPair != p {
-				s.log.Tracef("ignore nominate new pair %s, already nominated pair %s", p, selectedPair)
-			}
-		} else {
-			// If the received Binding request triggered a new check to be
-			// enqueued in the triggered-check queue (Section 7.3.1.4), once the
-			// check is sent and if it generates a successful response, and
-			// generates a valid pair, the agent sets the nominated flag of the
-			// pair to true.  If the request fails (Section 7.2.5.2), the agent
-			// MUST remove the candidate pair from the valid list, set the
-			// candidate pair state to Failed, and set the checklist state to
-			// Failed.
-			p.nominateOnBindingSuccess = true
-		}
+	if p.state == CandidatePairStateSucceeded {
+		// If the state of this pair is Succeeded, it means that the check
+		// previously sent by this pair produced a successful response and
+		// generated a valid pair (Section 7.2.5.3.2).  The agent sets the
+		// nominated flag value of the valid pair to true.
+		s.agent.addSelectedPair(p)
+	} else {
+		// If the received Binding request triggered a new check to be
+		// enqueued in the triggered-check queue (Section 7.3.1.4), once the
+		// check is sent and if it generates a successful response, and
+		// generates a valid pair, the agent sets the nominated flag of the
+		// pair to true.  If the request fails (Section 7.2.5.2), the agent
+		// MUST remove the candidate pair from the valid list, set the
+		// candidate pair state to Failed, and set the checklist state to
+		// Failed.
+		p.nominateOnBindingSuccess = true
 	}
 
 	s.agent.sendBindingSuccess(m, local, remote)
@@ -287,6 +266,6 @@ func (s *liteSelector) ContactCandidates() {
 		// This only happens if both peers are lite. See RFC 8445 S6.1.1 and S6.2
 		s.pairCandidateSelector.ContactCandidates()
 	} else if v, ok := s.pairCandidateSelector.(*controlledSelector); ok {
-		v.agent.validateSelectedPair()
+		v.agent.validateSelectedPairs()
 	}
 }

@@ -86,21 +86,16 @@ func (c *Conn) Write(p []byte) (int, error) {
 		return 0, errICEWriteSTUNMessage
 	}
 
-	pair := c.agent.getSelectedPair()
-	if pair == nil {
-		if err = c.agent.run(c.agent.context(), func(ctx context.Context, a *Agent) {
-			pair = a.getBestValidCandidatePair()
-		}); err != nil {
-			return 0, err
-		}
-
-		if pair == nil {
-			return 0, err
-		}
+	pairs := c.agent.getSelectedPairs()
+	if len(pairs) == 0 {
+		return 0, err
 	}
 
 	atomic.AddUint64(&c.bytesSent, uint64(len(p)))
-	return pair.Write(p)
+
+	// TODO: choice algorithm, for now choose randomly among pairs.
+
+	return pairs[0].Write(p)
 }
 
 // Close implements the Conn Close method. It is used to close
@@ -111,22 +106,22 @@ func (c *Conn) Close() error {
 
 // LocalAddr returns the local address of the current selected pair or nil if there is none.
 func (c *Conn) LocalAddr() net.Addr {
-	pair := c.agent.getSelectedPair()
-	if pair == nil {
+	pairs := c.agent.getSelectedPairs()
+	if len(pairs) == 0 {
 		return nil
 	}
 
-	return pair.Local.addr()
+	return pairs[0].Local.addr()
 }
 
 // RemoteAddr returns the remote address of the current selected pair or nil if there is none.
 func (c *Conn) RemoteAddr() net.Addr {
-	pair := c.agent.getSelectedPair()
-	if pair == nil {
+	pairs := c.agent.getSelectedPairs()
+	if len(pairs) == 0 {
 		return nil
 	}
 
-	return pair.Remote.addr()
+	return pairs[0].Remote.addr()
 }
 
 // SetDeadline is a stub
