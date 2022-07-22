@@ -17,9 +17,9 @@ type pairCandidateSelector interface {
 }
 
 type controllingSelector struct {
-	startTime     time.Time
-	agent         *Agent
-	log           logging.LeveledLogger
+	startTime time.Time
+	agent     *Agent
+	log       logging.LeveledLogger
 }
 
 func (s *controllingSelector) Start() {
@@ -43,7 +43,7 @@ func (s *controllingSelector) isNominatable(c Candidate) bool {
 }
 
 func (s *controllingSelector) ContactCandidates() {
-			s.log.Trace("contact candidates")
+	s.log.Trace("contact candidates")
 	switch {
 	case len(s.agent.getSelectedPairs()) > 0:
 		if s.agent.validateSelectedPairs() {
