@@ -194,7 +194,7 @@ func TestOnSelectedCandidatePairChange(t *testing.T) {
 	// select the pair
 	if err = a.run(context.Background(), func(ctx context.Context, agent *Agent) {
 		p := newCandidatePair(hostLocal, relayRemote, false)
-		agent.setSelectedPair(p)
+		agent.addSelectedPair(p)
 	}); err != nil {
 		t.Fatalf("Failed to setValidPair(): %s", err)
 	}
@@ -1704,11 +1704,11 @@ func TestNilCandidatePair(t *testing.T) {
 	a, err := NewAgent(&AgentConfig{})
 	assert.NoError(t, err)
 
-	a.setSelectedPair(nil)
+	a.clearSelectedPairs()
 	assert.NoError(t, a.Close())
 }
 
-func TestGetSelectedCandidatePair(t *testing.T) {
+func TestGetSelectedCandidatePairs(t *testing.T) {
 	report := test.CheckRoutines(t)
 	defer report()
 
@@ -1739,26 +1739,26 @@ func TestGetSelectedCandidatePair(t *testing.T) {
 	bAgent, err := NewAgent(cfg)
 	assert.NoError(t, err)
 
-	aAgentPair, err := aAgent.GetSelectedCandidatePair()
+	aAgentPairs, err := aAgent.GetSelectedCandidatePairs()
 	assert.NoError(t, err)
-	assert.Nil(t, aAgentPair)
+	assert.Nil(t, aAgentPairs)
 
-	bAgentPair, err := bAgent.GetSelectedCandidatePair()
+	bAgentPairs, err := bAgent.GetSelectedCandidatePairs()
 	assert.NoError(t, err)
-	assert.Nil(t, bAgentPair)
+	assert.Nil(t, bAgentPairs)
 
 	connect(aAgent, bAgent)
 
-	aAgentPair, err = aAgent.GetSelectedCandidatePair()
+	aAgentPairs, err = aAgent.GetSelectedCandidatePairs()
 	assert.NoError(t, err)
-	assert.NotNil(t, aAgentPair)
+	assert.NotNil(t, aAgentPairs)
 
-	bAgentPair, err = bAgent.GetSelectedCandidatePair()
+	bAgentPairs, err = bAgent.GetSelectedCandidatePairs()
 	assert.NoError(t, err)
-	assert.NotNil(t, bAgentPair)
+	assert.NotNil(t, bAgentPairs)
 
-	assert.True(t, bAgentPair.Local.Equal(aAgentPair.Remote))
-	assert.True(t, bAgentPair.Remote.Equal(aAgentPair.Local))
+	assert.True(t, bAgentPairs[0].Local.Equal(aAgentPairs[0].Remote))
+	assert.True(t, bAgentPairs[0].Remote.Equal(aAgentPairs[0].Local))
 
 	assert.NoError(t, wan.Stop())
 	assert.NoError(t, aAgent.Close())
@@ -1856,7 +1856,7 @@ func TestAcceptAggressiveNomination(t *testing.T) {
 	require.NoError(t, err)
 
 	for _, c := range bcandidates {
-		if c != bAgent.getSelectedPair().Local {
+		if c != bAgent.getSelectedPairs().Local {
 			if expectNewSelectedCandidate == nil {
 			incr_priority:
 				for _, candidates := range aAgent.remoteCandidates {
@@ -1869,7 +1869,7 @@ func TestAcceptAggressiveNomination(t *testing.T) {
 				}
 				expectNewSelectedCandidate = c
 			}
-			_, err = c.writeTo(buildMsg(stun.ClassRequest, aAgent.localUfrag+":"+aAgent.remoteUfrag, aAgent.localPwd, c.Priority()).Raw, bAgent.getSelectedPair().Remote)
+			_, err = c.writeTo(buildMsg(stun.ClassRequest, aAgent.localUfrag+":"+aAgent.remoteUfrag, aAgent.localPwd, c.Priority()).Raw, bAgent.getSelectedPairs().Remote)
 			require.NoError(t, err)
 		}
 	}

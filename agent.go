@@ -95,7 +95,7 @@ type Agent struct {
 	checklist []*CandidatePair
 	selector  pairCandidateSelector
 
-	selectedPair atomic.Value // *CandidatePair
+	selectedPairs atomic.Value // []*CandidatePair
 
 	urls         []*URL
 	networkTypes []NetworkType
@@ -567,16 +567,13 @@ func (a *Agent) updateConnectionState(newState ConnectionState) {
 	}
 }
 
-func (a *Agent) setSelectedPair(p *CandidatePair) {
-	if p == nil {
-		var nilPair *CandidatePair
-		a.selectedPair.Store(nilPair)
-		a.log.Tracef("Unset selected candidate pair")
-		return
-	}
+func (a *Agent) clearSelectedPairs() {
+	
+}
 
+func (a *Agent) addSelectedPair(p *CandidatePair) {
 	p.nominated = true
-	a.selectedPair.Store(p)
+	a.selectedPairs.Store(p)
 	a.log.Tracef("Set selected candidate pair: %s", p)
 
 	a.updateConnectionState(ConnectionStateConnected)
@@ -668,28 +665,38 @@ func (a *Agent) findPair(local, remote Candidate) *CandidatePair {
 
 // validateSelectedPair checks if the selected pair is (still) valid
 // Note: the caller should hold the agent lock.
-func (a *Agent) validateSelectedPair() bool {
-	selectedPair := a.getSelectedPair()
-	if selectedPair == nil {
+func (a *Agent) validateSelectedPairs() bool {
+	selectedPairs := a.getSelectedPairs()
+	if len(selectedPairs) == 0 {
 		return false
 	}
 
-	disconnectedTime := time.Since(selectedPair.Remote.LastReceived())
+	state := ConnectionState(ConnectionStateFailed)
 
-	// Only allow transitions to failed if a.failedTimeout is non-zero
-	totalTimeToFailure := a.failedTimeout
-	if totalTimeToFailure != 0 {
-		totalTimeToFailure += a.disconnectedTimeout
-	}
+	for _, selectedPair := range selectedPairs {
+		disconnectedTime := time.Since(selectedPair.Remote.LastReceived())
 
-	switch {
-	case totalTimeToFailure != 0 && disconnectedTime > totalTimeToFailure:
-		a.updateConnectionState(ConnectionStateFailed)
-	case a.disconnectedTimeout != 0 && disconnectedTime > a.disconnectedTimeout:
-		a.updateConnectionState(ConnectionStateDisconnected)
-	default:
-		a.updateConnectionState(ConnectionStateConnected)
+		// Only allow transitions to failed if a.failedTimeout is non-zero
+		totalTimeToFailure := a.failedTimeout
+		if totalTimeToFailure != 0 {
+			totalTimeToFailure += a.disconnectedTimeout
+		}
+
+		switch {
+		case totalTimeToFailure != 0 && disconnectedTime > totalTimeToFailure:
+			// do nothing
+		case a.disconnectedTimeout != 0 && disconnectedTime > a.disconnectedTimeout:
+			if state == ConnectionStateFailed {
+				// disconnected is better than failed
+				state = ConnectionStateDisconnected
+			}
+		default:
+			// connected is better than all
+			state = ConnectionStateConnected
+		}
 	}
+	// the connection state is the best state among all pairs
+	a.updateConnectionState(state)
 
 	return true
 }
@@ -698,17 +705,14 @@ func (a *Agent) validateSelectedPair() bool {
 // if no packet has been sent on that pair in the last keepaliveInterval
 // Note: the caller should hold the agent lock.
 func (a *Agent) checkKeepalive() {
-	selectedPair := a.getSelectedPair()
-	if selectedPair == nil {
-		return
-	}
-
-	if (a.keepaliveInterval != 0) &&
-		((time.Since(selectedPair.Local.LastSent()) > a.keepaliveInterval) ||
-			(time.Since(selectedPair.Remote.LastReceived()) > a.keepaliveInterval)) {
-		// we use binding request instead of indication to support refresh consent schemas
-		// see https://tools.ietf.org/html/rfc7675
-		a.selector.PingCandidate(selectedPair.Local, selectedPair.Remote)
+	for _, selectedPair := range a.getSelectedPairs() {
+		if (a.keepaliveInterval != 0) &&
+			((time.Since(selectedPair.Local.LastSent()) > a.keepaliveInterval) ||
+				(time.Since(selectedPair.Remote.LastReceived()) > a.keepaliveInterval)) {
+			// we use binding request instead of indication to support refresh consent schemas
+			// see https://tools.ietf.org/html/rfc7675
+			a.selector.PingCandidate(selectedPair.Local, selectedPair.Remote)
+		}
 	}
 }
 
@@ -1140,27 +1144,20 @@ func (a *Agent) validateNonSTUNTraffic(local Candidate, remote net.Addr) bool {
 }
 
 // GetSelectedCandidatePair returns the selected pair or nil if there is none
-func (a *Agent) GetSelectedCandidatePair() (*CandidatePair, error) {
-	selectedPair := a.getSelectedPair()
-	if selectedPair == nil {
-		return nil, nil //nolint:nilnil
+func (a *Agent) GetSelectedCandidatePairs() ([]*CandidatePair, error) {
+	selectedPairs := a.getSelectedPairs()
+	for i := range selectedPairs {
+		copy, err := selectedPairs[i].copy()
+		if err != nil {
+			return nil, err
+		}
+		selectedPairs[i] = copy
 	}
-
-	local, err := selectedPair.Local.copy()
-	if err != nil {
-		return nil, err
-	}
-
-	remote, err := selectedPair.Remote.copy()
-	if err != nil {
-		return nil, err
-	}
-
-	return &CandidatePair{Local: local, Remote: remote}, nil
+	return selectedPairs, nil
 }
 
-func (a *Agent) getSelectedPair() *CandidatePair {
-	if selectedPair, ok := a.selectedPair.Load().(*CandidatePair); ok {
+func (a *Agent) getSelectedPairs() []*CandidatePair {
+	if selectedPair, ok := a.selectedPairs.Load().([]*CandidatePair); ok {
 		return selectedPair
 	}
 
@@ -1234,7 +1231,7 @@ func (a *Agent) Restart(ufrag, pwd string) error {
 		a.gatheringState = GatheringStateNew
 		a.checklist = make([]*CandidatePair, 0)
 		a.pendingBindingRequests = make([]bindingRequest, 0)
-		a.setSelectedPair(nil)
+		a.clearSelectedPairs()
 		a.deleteAllCandidates()
 		if a.selector != nil {
 			a.selector.Start()

@@ -86,20 +86,15 @@ func (c *Conn) Write(p []byte) (int, error) {
 		return 0, errICEWriteSTUNMessage
 	}
 
-	pair := c.agent.getSelectedPair()
+	pair := c.agent.getSelectedPairs()
 	if pair == nil {
-		if err = c.agent.run(c.agent.context(), func(ctx context.Context, a *Agent) {
-			pair = a.getBestValidCandidatePair()
-		}); err != nil {
-			return 0, err
-		}
-
-		if pair == nil {
-			return 0, err
-		}
+		return 0, err
 	}
 
 	atomic.AddUint64(&c.bytesSent, uint64(len(p)))
+
+	// TODO: choice algorithm, for now choose randomly among pairs.
+
 	return pair.Write(p)
 }
 
@@ -111,7 +106,7 @@ func (c *Conn) Close() error {
 
 // LocalAddr returns the local address of the current selected pair or nil if there is none.
 func (c *Conn) LocalAddr() net.Addr {
-	pair := c.agent.getSelectedPair()
+	pair := c.agent.getSelectedPairs()
 	if pair == nil {
 		return nil
 	}
@@ -121,7 +116,7 @@ func (c *Conn) LocalAddr() net.Addr {
 
 // RemoteAddr returns the remote address of the current selected pair or nil if there is none.
 func (c *Conn) RemoteAddr() net.Addr {
-	pair := c.agent.getSelectedPair()
+	pair := c.agent.getSelectedPairs()
 	if pair == nil {
 		return nil
 	}
