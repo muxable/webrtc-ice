@@ -157,7 +157,7 @@ func (s *controlledSelector) Start() {
 }
 
 func (s *controlledSelector) ContactCandidates() {
-	if s.agent.getSelectedPairs() != nil {
+	if len(s.agent.getSelectedPairs()) > 0 {
 		if s.agent.validateSelectedPairs() {
 			s.log.Trace("checking keepalive")
 			s.agent.checkKeepalive()
